@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+
+GWS_PROPS_FILE_NAME='.projects.gws'
+root_directory="$(pwd)"
+
+# ANSI color codes
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+# Function to log messages with different levels
+function log() {
+    local log_level="$1"
+    local message="$2"
+    local color="${NC}" # Default color
+
+    case "$log_level" in
+    "error")
+        color="$RED"
+        ;;
+    "warning")
+        color="$YELLOW"
+        ;;
+    "info")
+        color="$BLUE"
+        ;;
+    *)
+        echo "${message}"
+        return 0
+        ;;
+    esac
+
+    echo -e "${color}[${log_level^^}] ${message}${NC}"
+}
+
+is_git_project() {
+    local target_dir="$1"
+
+    # Check if the target directory exists
+    if [ ! -d "$target_dir" ]; then
+        log "error" "Directory '$target_dir' not found."
+        return 1
+    fi
+
+    # Log info message
+    log "info" "Scanning directory: $target_dir"
+
+    # Find all Git repositories in the target directory and its subdirectories
+    find "$target_dir" -type d -name .git | while read -r git_dir; do
+        project_dir=$(dirname "$git_dir")
+        project_name=$(basename "$project_dir")
+        git_repo=$(cd "$project_dir" && git config --get remote.origin.url)
+
+        if [ -n "$git_repo" ]; then
+            log "info" "Project at $project_dir is a Git project."
+        else
+            log "error" "Folder $project_dir is not properly configured as a Git project."
+        fi
+    done
+}
+
+# Function to find all Git repositories inside a directory
+find_git_repos() {
+    local dir=$1
+    local repos=()
+
+    # Use find command to locate all .git directories
+    find "$dir" -type d -name ".git" -print0 | while IFS= read -r -d '' repo; do
+        # Remove the "/.git" suffix from the directory path
+        repo=${repo%/.git}
+
+        # Determine project_name (relative path from root_directory)
+        project_name=${repo%"${repo##*[!/]}"}
+        project_name=${project_name#"$dir"}
+        project_name=${project_name#/}
+
+        remote_url=$(git -C "$repo" config --get remote.origin.url)
+
+        # Check if remote_url is empty
+        if [ -n "$remote_url" ]; then
+            # Add to repos array
+            echo "${project_name} ${remote_url}" >>"${root_directory}/${GWS_PROPS_FILE_NAME}"
+        else
+            log "warning" "Project ${project_name} is not alreay created on remote"
+        fi
+
+    done
+
+}
+
+_init() {
+    if [ -f "$GWS_PROPS_FILE_NAME" ]; then
+        log "error" "Git workspaces already setup"
+        return 1
+    fi
+    find_git_repos "$root_directory"
+}
+
+_init
