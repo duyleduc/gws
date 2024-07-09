@@ -71,7 +71,7 @@ is_git_project() {
 
 check_file_in_parents() {
     local current_dir="$1"
-    
+
     while [[ "$current_dir" != "/" && "$current_dir" != "." ]]; do
         if [[ -f "$current_dir/.projects.gws" ]]; then
             projects_gws_file_location="$current_dir"
@@ -103,6 +103,8 @@ find_git_repos() {
         # Check if remote_url is empty
         if [ -n "$remote_url" ]; then
             # Add to repos array
+            echo "Find ${project_name} : ${remote_url}"
+
             echo "${project_name} ${remote_url}" >>"${root_directory}/${GWS_PROPS_FILE_NAME}"
         else
             log "warning" "Project ${project_name} is not alreay created on remote"
@@ -113,8 +115,8 @@ find_git_repos() {
 
 # Function to verify if a git command
 is_git_command() {
-  local command="$1"
-  git help -a | grep -qE "(^|[[:space:]])${command}($|[[:space:]])"
+    local command="$1"
+    git help -a | grep -qE "(^|[[:space:]])${command}($|[[:space:]])"
 }
 
 # Function to read file and save lines to an array
@@ -131,7 +133,7 @@ read_file() {
         if [[ -n $line && ! $line =~ ^# ]]; then
             lines+=("$line")
         fi
-    done < "$file"
+    done <"$file"
 
     # Return the lines array
     echo "${lines[@]}"
@@ -148,34 +150,21 @@ is_git_repo() {
 
 iterate_projects_and_return_map() {
     local file=$1
-    declare -A project_repo_map  # Declare an associative array
+    declare -A project_repo_map # Declare an associative array
 
     # Read the projects into an array
-    IFS=' ' read -r -a projects <<< "$(read_file "$file")"
+    IFS=' ' read -r -a projects <<<"$(read_file "$file")"
 
     # Iterate over the projects array and process each pair
-    for (( i=0; i<${#projects[@]}; i+=2 )); do
+    for ((i = 0; i < ${#projects[@]}; i += 2)); do
         local project="${projects[i]}"
-        local repo="${projects[i+1]}"
+        local repo="${projects[i + 1]}"
 
         project_repo_map["$project"]="$repo"
     done
 
-    echo "$(declare -p project_repo_map)"  # Print the associative array declaration
+    echo "$(declare -p project_repo_map)" # Print the associative array declaration
 }
-
-execute_git_command_for_projects() {
-    echo "to be implemented"
-}
-
-######################################################################
-# End of common functions
-######################################################################
-
-
-######################################################################
-# Specific git command functions
-######################################################################
 
 # Function to clone a project if it's not already a Git repository
 clone_project() {
@@ -193,19 +182,72 @@ clone_project() {
     fi
 }
 
+# Function to check if the Git repository is clean
+is_repo_clean() {
+    local dir=$1
+    cd "$dir" || return 1
+    if [ -z "$(git status --porcelain)" ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+execute_git_command_for_projects() {
+    local dir=$1
+    local project=$2
+    local git_command=$3
+
+    log "info" "--------------------------------------- Project: ${project} ---------------------------------------"
+
+    is_git_repo "${dir}/${project}"
+    if [[ $? -eq 1 ]]; then
+        log "error" "${dir}/${project} is not a Git repository"
+        return 1
+    fi
+
+    if [[ "$git_command" != "status" ]]; then
+        is_repo_clean "${dir}/${project}"
+        if [[ $? -eq 1 ]]; then
+            log "error" "${project} has uncommitted changes. Please commit or stash them before running the command."
+            return 1
+        fi
+    fi
+
+    cd "${dir}/${project}" || return 1
+
+    eval "git $git_command"
+
+    if [[ $? -eq 0 ]]; then
+        log "info" "Command 'git $git_command' executed successfully in $project"
+        echo ""
+        echo ""
+    else
+        log "error" "Failed to execute command 'git $git_command' in $project"
+    fi
+}
+
+######################################################################
+# End of common functions
+######################################################################
+
+######################################################################
+# Specific git command functions
+######################################################################
 
 _update() {
     local gws_file_loc=$(check_file_in_parents ${root_directory})
     status=$?
-    if [[ $status -eq 0 && -n "$projects_gws_file" ]]; then
+
+    if [[ $status -eq 0 && -n "$gws_file_loc" ]]; then
         log "info" "You current gws config is at ${gws_file_loc}"
-        project_repo=$(iterate_projects_and_return_map "${gws_file_loc}/${GWS_PROPS_FILE_NAME}")
+        project_repo_map=$(iterate_projects_and_return_map "${gws_file_loc}/${GWS_PROPS_FILE_NAME}")
         # Evaluate the string to declare the associative array in the current scope
-        eval "$map_string"
+        eval "$project_repo_map"
 
         # Access the associative array
         for project in "${!project_repo_map[@]}"; do
-            clone_project "$project" "${project_repo_map[$project]}"
+            clone_project "${gws_file_loc}/${project}" "${project_repo_map[$project]}"
         done
     else
         log "error" "Not in a Git workspace"
@@ -214,11 +256,15 @@ _update() {
 }
 
 _init() {
-    if [ -f "$GWS_PROPS_FILE_NAME" ]; then
-        log "error" "Git workspaces already setup"
-        return 1
+    local gws_file_loc=$(check_file_in_parents ${root_directory})
+    status=$?
+
+    if [[ $status -eq 0 && -n "$gws_file_loc" ]]; then
+        log "error" "Git workspaces already setup at ${gws_file_loc}"
+        exit 1
+    else
+        find_git_repos "$root_directory"
     fi
-    find_git_repos "$root_directory"
 }
 
 _git_command_c() {
@@ -233,14 +279,22 @@ _git_command_c() {
 }
 
 _git_command_g() {
-    git_command=$1
+    git_command="$@"
 
     if is_git_command "$1"; then
         local gws_file_loc=$(check_file_in_parents ${root_directory})
         status=$?
-        if [[ $status -eq 0 && -n "$projects_gws_file" ]]; then
+        if [[ $status -eq 0 && -n "$gws_file_loc" ]]; then
             log "info" "You current gws config is at ${gws_file_loc}"
-            iterate_projects_and_execute "${gws_file_loc}/${GWS_PROPS_FILE_NAME}" "$gws_file_loc" clone_project
+
+            project_repo_map=$(iterate_projects_and_return_map "${gws_file_loc}/${GWS_PROPS_FILE_NAME}")
+            # Evaluate the string to declare the associative array in the current scope
+            eval "$project_repo_map"
+
+            # Access the associative array
+            for project in "${!project_repo_map[@]}"; do
+                execute_git_command_for_projects "${gws_file_loc}" "${project}" "${git_command}"
+            done
         else
             log "error" "Not in a Git workspace"
             exit 1
@@ -256,21 +310,21 @@ if [ $# -eq 0 ]; then
 fi
 
 case $1 in
-    init)
-        _init
-        ;;
-    update)
-        _update $2
-        ;;
-    -c)
-        shift 
-        _git_command_c "$@"
-        ;;
-    -g) 
-        shift
-        _git_command_g "$@"
-        ;;
-    *)
-        usage
-        ;;
+init)
+    _init
+    ;;
+update)
+    _update $2
+    ;;
+-c)
+    shift
+    _git_command_c "$@"
+    ;;
+-g)
+    shift
+    _git_command_g "$@"
+    ;;
+*)
+    usage
+    ;;
 esac
