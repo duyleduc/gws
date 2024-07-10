@@ -116,7 +116,11 @@ find_git_repos() {
 # Function to verify if a git command
 is_git_command() {
     local command="$1"
-    git help -a | grep -qE "(^|[[:space:]])${command}($|[[:space:]])"
+    if git help -a | awk '/^  / {print $1}' | grep -qx "$command"; then
+        return 0
+    else
+        return 1
+    fi
 }
 
 # Function to read file and save lines to an array
@@ -267,11 +271,49 @@ _init() {
     fi
 }
 
-_git_command_c() {
-    git_command=$1
+_list() {
+    local gws_file_loc=$(check_file_in_parents ${root_directory})
+    status=$?
+    if [[ $status -eq 0 && -n "$gws_file_loc" ]]; then
+        log "info" "You current gws config is at ${gws_file_loc}"
+            project_repo_map=$(iterate_projects_and_return_map "${gws_file_loc}/${GWS_PROPS_FILE_NAME}")
+            # Evaluate the string to declare the associative array in the current scope
+            eval "$project_repo_map"
 
-    if is_git_command "$1"; then
-        echo "to be implemented"
+            # Access the associative array
+            for project in "${!project_repo_map[@]}"; do
+                echo "${project} : ${project_repo_map[$project]}"
+            done
+    else
+        log "error" "Not in a Git workspace"
+        exit 1
+    fi
+    
+}
+
+_git_command_c() {
+    git_command="$@"
+    if is_git_command "$git_command"; then
+        local gws_file_loc=$(check_file_in_parents ${root_directory})
+        status=$?
+        if [[ $status -eq 0 && -n "$gws_file_loc" ]]; then
+            log "info" "You current gws config is at ${gws_file_loc}"
+
+            current_dir="$(pwd)"
+            project_repo_map=$(iterate_projects_and_return_map "${gws_file_loc}/${GWS_PROPS_FILE_NAME}")
+            # Evaluate the string to declare the associative array in the current scope
+            eval "$project_repo_map"
+
+            # Access the associative array
+            for project in "${!project_repo_map[@]}"; do
+                if [[ "${gws_file_loc}/${project}" == *"${current_dir}"* ]]; then
+                    execute_git_command_for_projects "${gws_file_loc}" "${project}" "${git_command}"
+                fi
+            done
+        else
+            log "error" "Not in a Git workspace"
+            exit 1
+        fi
     else
         log "error" "Unkown git command: $1"
         exit 1
@@ -281,7 +323,7 @@ _git_command_c() {
 _git_command_g() {
     git_command="$@"
 
-    if is_git_command "$1"; then
+    if is_git_command "$git_command"; then
         local gws_file_loc=$(check_file_in_parents ${root_directory})
         status=$?
         if [[ $status -eq 0 && -n "$gws_file_loc" ]]; then
@@ -316,6 +358,9 @@ init)
 update)
     _update $2
     ;;
+list)
+    _list
+    ;; 
 -c)
     shift
     _git_command_c "$@"
