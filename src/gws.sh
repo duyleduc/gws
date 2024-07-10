@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-GWS_PROPS_FILE_NAME='.projects.gws'
+gws_props_file_name='.projects.gws'
 root_directory="$(pwd)"
 
 # ANSI color codes
@@ -13,8 +13,18 @@ NC='\033[0m' # No Color
 ######################################################################
 # Common functions #
 ######################################################################
+
+# Function to display usage information
 usage() {
-    echo "Usage: $0 {init|update [--global|--current]}"
+    echo "Usage: gws {init|update|list|version|-c <git_command>|-g <git_command>}"
+    echo ""
+    echo "Commands:"
+    echo "  init            Initialize a new Git workspace by scanning for repositories"
+    echo "  update          Update the Git workspace by cloning or pulling repositories"
+    echo "  list            List all repositories in the current Git workspace"
+    echo "  version         Display the script version"
+    echo "  -c <git command>    Run a Git command in repositories in the current directory"
+    echo "  -g <git command>    Run a Git command in all repositories in the Git workspace"
     exit 1
 }
 
@@ -43,6 +53,7 @@ log() {
     echo -e "${color}[${log_level^^}] ${message}${NC}"
 }
 
+# Function to check if a directory is a Git project
 is_git_project() {
     local target_dir="$1"
 
@@ -69,6 +80,7 @@ is_git_project() {
     done
 }
 
+# Function to check if a file exists in the parent directories
 check_file_in_parents() {
     local current_dir="$1"
 
@@ -105,15 +117,14 @@ find_git_repos() {
             # Add to repos array
             echo "Find ${project_name} : ${remote_url}"
 
-            echo "${project_name} ${remote_url}" >>"${root_directory}/${GWS_PROPS_FILE_NAME}"
+            echo "${project_name} ${remote_url}" >>"${root_directory}/${gws_props_file_name}"
         else
-            log "warning" "Project ${project_name} is not alreay created on remote"
+            log "warning" "Project ${project_name} is not already created on remote"
         fi
-
     done
 }
 
-# Function to verify if a git command
+# Function to verify if a git command is valid
 is_git_command() {
     local command="$1"
     if git help -a | awk '/^  / {print $1}' | grep -qx "$command"; then
@@ -143,6 +154,7 @@ read_file() {
     echo "${lines[@]}"
 }
 
+# Function to check if a directory is a Git repository
 is_git_repo() {
     local project_location=$1
     if [ -d "$1/.git" ]; then
@@ -152,6 +164,7 @@ is_git_repo() {
     fi
 }
 
+# Function to iterate projects and return a map
 iterate_projects_and_return_map() {
     local file=$1
     declare -A project_repo_map # Declare an associative array
@@ -197,6 +210,7 @@ is_repo_clean() {
     fi
 }
 
+# Function to execute a Git command for projects
 execute_git_command_for_projects() {
     local dir=$1
     local project=$2
@@ -239,13 +253,14 @@ execute_git_command_for_projects() {
 # Specific git command functions
 ######################################################################
 
+# Function to update the Git workspace
 _update() {
     local gws_file_loc=$(check_file_in_parents ${root_directory})
     status=$?
 
     if [[ $status -eq 0 && -n "$gws_file_loc" ]]; then
-        log "info" "You current gws config is at ${gws_file_loc}"
-        project_repo_map=$(iterate_projects_and_return_map "${gws_file_loc}/${GWS_PROPS_FILE_NAME}")
+        log "info" "Your current gws config is at ${gws_file_loc}"
+        project_repo_map=$(iterate_projects_and_return_map "${gws_file_loc}/${gws_props_file_name}")
         # Evaluate the string to declare the associative array in the current scope
         eval "$project_repo_map"
 
@@ -259,6 +274,7 @@ _update() {
     fi
 }
 
+# Function to initialize a new Git workspace
 _init() {
     local gws_file_loc=$(check_file_in_parents ${root_directory})
     status=$?
@@ -271,36 +287,37 @@ _init() {
     fi
 }
 
+# Function to list all repositories in the current Git workspace
 _list() {
     local gws_file_loc=$(check_file_in_parents ${root_directory})
     status=$?
     if [[ $status -eq 0 && -n "$gws_file_loc" ]]; then
-        log "info" "You current gws config is at ${gws_file_loc}"
-            project_repo_map=$(iterate_projects_and_return_map "${gws_file_loc}/${GWS_PROPS_FILE_NAME}")
-            # Evaluate the string to declare the associative array in the current scope
-            eval "$project_repo_map"
+        log "info" "Your current gws config is at ${gws_file_loc}"
+        project_repo_map=$(iterate_projects_and_return_map "${gws_file_loc}/${gws_props_file_name}")
+        # Evaluate the string to declare the associative array in the current scope
+        eval "$project_repo_map"
 
-            # Access the associative array
-            for project in "${!project_repo_map[@]}"; do
-                echo "${project} : ${project_repo_map[$project]}"
-            done
+        # Access the associative array
+        for project in "${!project_repo_map[@]}"; do
+            echo "${project} : ${project_repo_map[$project]}"
+        done
     else
         log "error" "Not in a Git workspace"
         exit 1
     fi
-    
 }
 
+# Function to run a Git command in repositories in the current directory
 _git_command_c() {
     git_command="$@"
     if is_git_command "$git_command"; then
         local gws_file_loc=$(check_file_in_parents ${root_directory})
         status=$?
         if [[ $status -eq 0 && -n "$gws_file_loc" ]]; then
-            log "info" "You current gws config is at ${gws_file_loc}"
+            log "info" "Your current gws config is at ${gws_file_loc}"
 
             current_dir="$(pwd)"
-            project_repo_map=$(iterate_projects_and_return_map "${gws_file_loc}/${GWS_PROPS_FILE_NAME}")
+            project_repo_map=$(iterate_projects_and_return_map "${gws_file_loc}/${gws_props_file_name}")
             # Evaluate the string to declare the associative array in the current scope
             eval "$project_repo_map"
 
@@ -315,11 +332,12 @@ _git_command_c() {
             exit 1
         fi
     else
-        log "error" "Unkown git command: $1"
+        log "error" "Unknown git command: $1"
         exit 1
     fi
 }
 
+# Function to run a Git command in all repositories in the Git workspace
 _git_command_g() {
     git_command="$@"
 
@@ -327,9 +345,9 @@ _git_command_g() {
         local gws_file_loc=$(check_file_in_parents ${root_directory})
         status=$?
         if [[ $status -eq 0 && -n "$gws_file_loc" ]]; then
-            log "info" "You current gws config is at ${gws_file_loc}"
+            log "info" "Your current gws config is at ${gws_file_loc}"
 
-            project_repo_map=$(iterate_projects_and_return_map "${gws_file_loc}/${GWS_PROPS_FILE_NAME}")
+            project_repo_map=$(iterate_projects_and_return_map "${gws_file_loc}/${gws_props_file_name}")
             # Evaluate the string to declare the associative array in the current scope
             eval "$project_repo_map"
 
@@ -342,9 +360,14 @@ _git_command_g() {
             exit 1
         fi
     else
-        log "error" "Unkown git command: $1"
+        log "error" "Unknown git command: $1"
         exit 1
     fi
+}
+
+# Function to display the script version
+_version() {
+    echo "Version 1.0.0"
 }
 
 if [ $# -eq 0 ]; then
@@ -360,7 +383,10 @@ update)
     ;;
 list)
     _list
-    ;; 
+    ;;
+version)
+    _version
+    ;;
 -c)
     shift
     _git_command_c "$@"
