@@ -472,6 +472,9 @@ tree)
     shift
     _git_command_g "$@"
     ;;
+help)
+    usage
+    ;;
 *)
     usage
     ;;
