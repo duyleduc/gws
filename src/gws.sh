@@ -22,6 +22,7 @@ usage() {
     echo "  init            Initialize a new Git workspace by scanning for repositories"
     echo "  update          Update the Git workspace by cloning or pulling repositories"
     echo "  list            List all repositories in the current Git workspace"
+    echo "  tree            Display tree of workspaces"
     echo "  version         Display the script version"
     echo "  -c <git command>    Run a Git command in repositories in the current directory"
     echo "  -g <git command>    Run a Git command in all repositories in the Git workspace"
@@ -245,6 +246,61 @@ execute_git_command_for_projects() {
     fi
 }
 
+print_indent() {
+    local index=$1
+    local text=$2
+
+    local message=""
+    local iteration=$((index * 4))
+
+    local i=0
+
+    while [ $i -le $iteration ]; do
+        i=$((i + 1))
+        message="$message "
+    done
+
+    echo "$message$text"
+}
+
+draw_tree() {
+    local folder_list=("$@")
+
+    # Sort the folder list
+    IFS=$'\n' sorted_folders=($(sort <<<"${folder_list[*]}"))
+    unset IFS
+
+    local printed_folder_list=""
+
+    # Draw the tree
+    for folder in "${sorted_folders[@]}"; do
+        local IFS='/'
+        read -ra path_array <<<"$folder"
+        unset IFS
+        for index in "${!path_array[@]}"; do
+            folder_name="${path_array[index]}"
+            folder_key="${folder_name}-${index}"
+
+            # Check if folder_key is already in printed_folder_list
+            if [[ ! "$printed_folder_list" == *"$folder_key"* ]]; then
+                if [[ index -eq 0 ]]; then
+                    print_indent $index "$folder_name"
+                else
+                    print_indent $index "└──$folder_name"
+                fi
+
+                printed_folder_list="${printed_folder_list};${folder_key}"
+            fi
+        done
+    done
+}
+
+read_keys_from_map() {
+    local -n map=$1
+
+    keys_list=("${!map[@]}")
+    echo "${keys_list[@]}"
+}
 ######################################################################
 # End of common functions
 ######################################################################
@@ -370,6 +426,24 @@ _version() {
     echo "Version 1.0.0"
 }
 
+_tree() {
+    local gws_file_loc=$(check_file_in_parents ${root_directory})
+    status=$?
+    if [[ $status -eq 0 && -n "$gws_file_loc" ]]; then
+        log "info" "Your current gws config is at ${gws_file_loc}"
+
+        project_repo_map=$(iterate_projects_and_return_map "${gws_file_loc}/${gws_props_file_name}")
+        # Evaluate the string to declare the associative array in the current scope
+        eval "$project_repo_map"
+
+        folder_list=$(read_keys_from_map project_repo_map)
+        IFS=' ' read -r -a keys_array <<<"$keys_list"
+        draw_tree $folder_list
+    else 
+        log "error" "Not in a Git workspace"
+    fi
+}
+
 if [ $# -eq 0 ]; then
     usage
 fi
@@ -386,6 +460,9 @@ list)
     ;;
 version)
     _version
+    ;;
+tree)
+    _tree
     ;;
 -c)
     shift
