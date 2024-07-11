@@ -18,33 +18,43 @@ GWS is a shell script utility for managing multiple Git repositories within a sp
 
 ### Steps
 
-1. **Download the Script**:
+Certainly! Here's the content for your `README.md` file without any markdown formatting:
 
-   ```sh
-   curl -o ~/gws.sh https://raw.githubusercontent.com/yourusername/gws/main/gws.sh
+# Project Setup
+
+## Setup Instructions
+
+1. Clone the Project:
+
+   ```
+   git clone https://github.com/duyleduc/gws.git
    ```
 
-2. **Make the Script Executable**:
+2. Navigate to the Cloned Directory:
 
-   ```sh
-   chmod +x ~/gws.sh
+   ```
+   cd gws/src
    ```
 
-3. **Create an Alias**:
+3. Make the Script Executable:
 
-   Add the following line to your `.bashrc` or `.zshrc` file to create an alias for the script:
+   ```
+   chmod +x gws.sh
+   ```
 
-   ```sh
-   echo "alias gws='~/gws.sh'" >> ~/.bashrc
+4. Create an Alias:
+
+   ```
+   echo "alias gws='$(pwd)/gws.sh'" >> ~/.bashrc
    ```
 
    For Zsh users:
 
-   ```sh
-   echo "alias gws='~/gws.sh'" >> ~/.zshrc
+   ```
+   echo "alias gws='$(pwd)/gws.sh'" >> ~/.zshrc
    ```
 
-4. **Reload Your Shell Configuration**:
+5. **Reload Your Shell Configuration**:
 
    For Bash users:
 
@@ -144,11 +154,10 @@ GWS is a shell script utility for managing multiple Git repositories within a sp
 
 ## How to Update
 
-To update the `gws.sh` script, simply download the latest version and replace the existing script:
-
+To update the `gws.sh` script, simply pull the latest code from git repository.
 ```sh
-curl -o ~/gws.sh https://raw.githubusercontent.com/yourusername/gws/main/gws.sh
-chmod +x ~/gws.sh
+cd gws 
+git pull
 ```
 
 ## License
