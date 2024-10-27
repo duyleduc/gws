@@ -51,7 +51,8 @@ log() {
         ;;
     esac
 
-    echo -e "${color}[${log_level^^}] ${message}${NC}"
+    local upper_log_level=$(echo "$log_level" | tr '[:lower:]' '[:upper:]')
+    echo -e "${color}[${upper_log_level}] ${message}${NC}"
 }
 
 # Function to check if a directory is a Git project
@@ -168,21 +169,32 @@ is_git_repo() {
 # Function to iterate projects and return a map
 iterate_projects_and_return_map() {
     local file=$1
-    declare -A project_repo_map # Declare an associative array
+    local -a projects  # Declare an indexed array
 
-    # Read the projects into an array
+    # Read the projects into the array
     IFS=' ' read -r -a projects <<<"$(read_file "$file")"
+
+    # Check if the number of projects is even
+    if (( ${#projects[@]} % 2 != 0 )); then
+        echo "Error: The input file should contain an even number of entries."
+        return 1
+    fi
+
+    # Create a temporary file to store project-repo pairs
+    local temp_file=$(mktemp)
 
     # Iterate over the projects array and process each pair
     for ((i = 0; i < ${#projects[@]}; i += 2)); do
         local project="${projects[i]}"
         local repo="${projects[i + 1]}"
-
-        project_repo_map["$project"]="$repo"
+        
+        # Store the project-repo pair in the temporary file
+        echo "$project : $repo" >> "$temp_file"
     done
 
-    echo "$(declare -p project_repo_map)" # Print the associative array declaration
+    echo "$temp_file"  # Output the path to the temporary file
 }
+
 
 # Function to clone a project if it's not already a Git repository
 clone_project() {
@@ -311,19 +323,31 @@ read_keys_from_map() {
 
 # Function to update the Git workspace
 _update() {
-    local gws_file_loc=$(check_file_in_parents ${root_directory})
-    status=$?
+    local gws_file_loc=$(check_file_in_parents "${root_directory}")
+    local status=$?
 
     if [[ $status -eq 0 && -n "$gws_file_loc" ]]; then
         log "info" "Your current gws config is at ${gws_file_loc}"
-        project_repo_map=$(iterate_projects_and_return_map "${gws_file_loc}/${gws_props_file_name}")
-        # Evaluate the string to declare the associative array in the current scope
-        eval "$project_repo_map"
+        
+        # Get the path to the temporary file with project-repo pairs
+        local temp_file=$(iterate_projects_and_return_map "${gws_file_loc}/${gws_props_file_name}")
 
-        # Access the associative array
-        for project in "${!project_repo_map[@]}"; do
-            clone_project "${gws_file_loc}/${project}" "${project_repo_map[$project]}"
-        done
+        # Check if the temporary file was created successfully
+        if [[ ! -f "$temp_file" ]]; then
+            log "error" "Failed to create a temporary file for project-repo pairs."
+            exit 1
+        fi
+
+        cat "${temp_file}"
+
+        # Read the project-repo pairs from the temporary file
+        while IFS=' : ' read -r project repo; do
+            echo "debugging ${project} ${repo}"
+            clone_project "${gws_file_loc}/${project}" "${repo}"
+        done < "$temp_file"
+
+        # Clean up the temporary file
+        rm "$temp_file"
     else
         log "error" "Not in a Git workspace"
         exit 1
@@ -345,44 +369,71 @@ _init() {
 
 # Function to list all repositories in the current Git workspace
 _list() {
-    local gws_file_loc=$(check_file_in_parents ${root_directory})
-    status=$?
+    local gws_file_loc
+    gws_file_loc=$(check_file_in_parents "${root_directory}")
+    local status=$?
+
     if [[ $status -eq 0 && -n "$gws_file_loc" ]]; then
         log "info" "Your current gws config is at ${gws_file_loc}"
-        project_repo_map=$(iterate_projects_and_return_map "${gws_file_loc}/${gws_props_file_name}")
-        # Evaluate the string to declare the associative array in the current scope
-        eval "$project_repo_map"
+        
+        # Get the path to the temporary file with project-repo pairs
+        local temp_file
+        temp_file=$(iterate_projects_and_return_map "${gws_file_loc}/${gws_props_file_name}")
 
-        # Access the associative array
-        for project in "${!project_repo_map[@]}"; do
-            echo "${project} : ${project_repo_map[$project]}"
-        done
+        # Check if the temporary file was created successfully
+        if [[ ! -f "$temp_file" ]]; then
+            log "error" "Failed to create a temporary file for project-repo pairs."
+            exit 1
+        fi
+
+        # Read the project-repo pairs from the temporary file and log them
+        while IFS=' : ' read -r project repo; do
+            echo "${project} : ${repo}"
+        done < "$temp_file"
+
+        # Clean up the temporary file
+        rm "$temp_file"
     else
         log "error" "Not in a Git workspace"
         exit 1
     fi
 }
 
+
 # Function to run a Git command in repositories in the current directory
 _git_command_c() {
-    git_command="$@"
+    local git_command="$@"
+    
     if is_git_command "$git_command"; then
-        local gws_file_loc=$(check_file_in_parents ${root_directory})
-        status=$?
+        local gws_file_loc
+        gws_file_loc=$(check_file_in_parents "${root_directory}")
+        local status=$?
+
         if [[ $status -eq 0 && -n "$gws_file_loc" ]]; then
             log "info" "Your current gws config is at ${gws_file_loc}"
 
+            local current_dir
             current_dir="$(pwd)"
-            project_repo_map=$(iterate_projects_and_return_map "${gws_file_loc}/${gws_props_file_name}")
-            # Evaluate the string to declare the associative array in the current scope
-            eval "$project_repo_map"
+            
+            # Get the path to the temporary file with project-repo pairs
+            local temp_file
+            temp_file=$(iterate_projects_and_return_map "${gws_file_loc}/${gws_props_file_name}")
 
-            # Access the associative array
-            for project in "${!project_repo_map[@]}"; do
+            # Check if the temporary file was created successfully
+            if [[ ! -f "$temp_file" ]]; then
+                log "error" "Failed to create a temporary file for project-repo pairs."
+                exit 1
+            fi
+
+            # Read the project-repo pairs from the temporary file
+            while IFS=' : ' read -r project repo; do
                 if [[ "${gws_file_loc}/${project}" == *"${current_dir}"* ]]; then
                     execute_git_command_for_projects "${gws_file_loc}" "${project}" "${git_command}"
                 fi
-            done
+            done < "$temp_file"
+
+            # Clean up the temporary file
+            rm "$temp_file"
         else
             log "error" "Not in a Git workspace"
             exit 1
@@ -392,25 +443,37 @@ _git_command_c() {
         exit 1
     fi
 }
+
 
 # Function to run a Git command in all repositories in the Git workspace
 _git_command_g() {
-    git_command="$@"
+    local git_command="$@"
 
     if is_git_command "$git_command"; then
-        local gws_file_loc=$(check_file_in_parents ${root_directory})
-        status=$?
+        local gws_file_loc
+        gws_file_loc=$(check_file_in_parents "${root_directory}")
+        local status=$?
+
         if [[ $status -eq 0 && -n "$gws_file_loc" ]]; then
             log "info" "Your current gws config is at ${gws_file_loc}"
 
-            project_repo_map=$(iterate_projects_and_return_map "${gws_file_loc}/${gws_props_file_name}")
-            # Evaluate the string to declare the associative array in the current scope
-            eval "$project_repo_map"
+            # Get the path to the temporary file with project-repo pairs
+            local temp_file
+            temp_file=$(iterate_projects_and_return_map "${gws_file_loc}/${gws_props_file_name}")
 
-            # Access the associative array
-            for project in "${!project_repo_map[@]}"; do
+            # Check if the temporary file was created successfully
+            if [[ ! -f "$temp_file" ]]; then
+                log "error" "Failed to create a temporary file for project-repo pairs."
+                exit 1
+            fi
+
+            # Read the project-repo pairs from the temporary file
+            while IFS=' -> ' read -r project repo; do
                 execute_git_command_for_projects "${gws_file_loc}" "${project}" "${git_command}"
-            done
+            done < "$temp_file"
+
+            # Clean up the temporary file
+            rm "$temp_file"
         else
             log "error" "Not in a Git workspace"
             exit 1
@@ -420,6 +483,7 @@ _git_command_g() {
         exit 1
     fi
 }
+
 
 # Function to display the script version
 _version() {
@@ -427,22 +491,39 @@ _version() {
 }
 
 _tree() {
-    local gws_file_loc=$(check_file_in_parents ${root_directory})
-    status=$?
+    local gws_file_loc
+    gws_file_loc=$(check_file_in_parents "${root_directory}")
+    local status=$?
+
     if [[ $status -eq 0 && -n "$gws_file_loc" ]]; then
         log "info" "Your current gws config is at ${gws_file_loc}"
 
-        project_repo_map=$(iterate_projects_and_return_map "${gws_file_loc}/${gws_props_file_name}")
-        # Evaluate the string to declare the associative array in the current scope
-        eval "$project_repo_map"
+        # Get the path to the temporary file with project-repo pairs
+        local temp_file
+        temp_file=$(iterate_projects_and_return_map "${gws_file_loc}/${gws_props_file_name}")
 
-        folder_list=$(read_keys_from_map project_repo_map)
-        IFS=' ' read -r -a keys_array <<<"$keys_list"
-        draw_tree $folder_list
+        # Check if the temporary file was created successfully
+        if [[ ! -f "$temp_file" ]]; then
+            log "error" "Failed to create a temporary file for project-repo pairs."
+            exit 1
+        fi
+
+        # Read project-repo pairs and extract project folders
+        local folder_list=()
+        while IFS=' -> ' read -r project repo; do
+            folder_list+=("$project")  # Collect project names into an array
+        done < "$temp_file"
+
+        # Draw the tree using the collected folder list
+        draw_tree "${folder_list[@]}"
+
+        # Clean up the temporary file
+        rm "$temp_file"
     else 
         log "error" "Not in a Git workspace"
     fi
 }
+
 
 if [ $# -eq 0 ]; then
     usage
