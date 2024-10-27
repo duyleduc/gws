@@ -342,7 +342,6 @@ _update() {
 
         # Read the project-repo pairs from the temporary file
         while IFS=' : ' read -r project repo; do
-            echo "debugging ${project} ${repo}"
             clone_project "${gws_file_loc}/${project}" "${repo}"
         done < "$temp_file"
 
