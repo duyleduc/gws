@@ -205,8 +205,19 @@ clone_project() {
     is_git_repo "${gws_location}/${project_location}"
     if [[ $? -eq 1 ]]; then
         log "info" "Start cloning $project_repo at ${gws_location}/${project_location}"
-        git clone "$project_repo" "${gws_location}/${project_location}"
-        log "info" "Finish cloning $project_repo"
+        # Attempt to clone using git
+        if git clone "$project_repo" "${gws_location}/${project_location}"; then
+            echo "Cloned successfully with git."
+        else
+            echo "git clone failed. Trying gh repo clone instead..."
+
+            if gh repo clone "$project_repo" "${gws_location}/${project_location}"; then
+                echo "Cloned successfully with gh repo clone."
+            else
+                echo "Failed to clone with both git and gh repo clone."
+                exit 1
+            fi
+        fi
     else
         log "info" "$project_location is already a Git repository"
     fi
